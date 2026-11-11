@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Afterschool – alege utilizatorul</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="pick">
+    <h1>🚌 Afterschool</h1>
+    <p class="muted">Prototip: alege cu cine intri (în versiunea reală aici e login-ul).</p>
+    <div id="groups"></div>
+    <p style="margin-top:32px"><button class="secondary small" id="resetBtn">Reset date demo</button></p>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/common.js"></script>
+  <script>
+    (async () => {
+      const users = await api("/api/users");
+      const groups = [["parent", "Părinți – aplicația de telefon"], ["driver", "Șoferi – aplicația de scanare"], ["teacher", "Profesori"]];
+      $("groups").innerHTML = groups.map(([role, title]) => `
+        <div class="role-group"><h2>${title}</h2><div class="user-grid">
+          ${users.filter((u) => u.role === role).map((u) => `
+            <button class="user-card" data-id="${u.id}" data-role="${u.role}">
+              <b>${esc(u.name)}</b><span class="muted">${ROLE_LABEL[u.role]}</span>
+            </button>`).join("")}
+        </div></div>`).join("");
+      document.querySelectorAll(".user-card").forEach((b) => b.onclick = () => {
+        saveUserId(b.dataset.id);
+        location.href = `${ROLE_PAGE[b.dataset.role]}?u=${b.dataset.id}`;
+      });
+      $("resetBtn").onclick = async () => {
+        if (!confirm("Refaci datele de test? Se șterg confirmările și scanările de azi.")) return;
+        await api("/api/dev/reset", { method: "POST" });
+        toast("Date de test refăcute");
+      };
+    })();
+  </script>
+</body>
+</html>

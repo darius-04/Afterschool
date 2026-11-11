@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Afterschool – Profesor</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>🏫 Afterschool – <span id="who"></span></h1>
+    <a href="/">Schimbă utilizatorul</a>
+  </header>
+
+  <main class="wide">
+    <div class="panel">
+      <h2>Scanează brățara</h2>
+      <form class="inline" id="scanForm">
+        <input id="braceletInput" placeholder="Cod brățară (ex. NFC-1001)" autocomplete="off" required>
+        <select id="scanType">
+          <option value="AFTERSCHOOL_ARRIVE">A ajuns la afterschool</option>
+          <option value="DEPARTURE">A plecat de la afterschool</option>
+        </select>
+        <button type="submit">Scanează</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="row-between">
+        <h2 id="title">Copiii de azi</h2>
+        <span class="muted" id="alertInfo"></span>
+      </div>
+      <div class="summary" id="summary"></div>
+      <table>
+        <thead><tr><th>Copil</th><th>Traseu</th><th>Confirmare</th><th>Stare</th><th>Ore</th><th>Acțiune</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/common.js"></script>
+  <script>
+    let me = null;
+    const NEXT = { WAITING: "AFTERSCHOOL_ARRIVE", ON_BUS: "AFTERSCHOOL_ARRIVE", AT_AFTERSCHOOL: "DEPARTURE" };
+
+    async function render() {
+      try {
+        const data = await api(`/api/me/${me.id}/children`);
+        const kids = [...data.children].sort((a, b) => (b.alert ? 1 : 0) - (a.alert ? 1 : 0));
+        $("alertInfo").textContent = `Alertă dacă un copil nu ajunge în ${data.alert_minutes} min de la urcare`;
+        const n = (fn) => data.children.filter(fn).length;
+        $("summary").innerHTML = `
+          <span>Confirmați: <b>${n((c) => c.confirmation === "confirmed")}</b></span>
+          <span>🚌 În autobuz: <b>${n((c) => c.state === "ON_BUS")}</b></span>
+          <span>🏫 La afterschool: <b>${n((c) => c.state === "AT_AFTERSCHOOL")}</b></span>
+          <span>🏠 Plecați: <b>${n((c) => c.state === "LEFT")}</b></span>
+          ${n((c) => c.alert) ? `<span style="color:var(--red)">⚠ Alerte: <b>${n((c) => c.alert)}</b></span>` : ""}`;
+        $("rows").innerHTML = kids.map((c) => {
+          const next = NEXT[c.state];
+          const left = c.events.find((e) => e.picked_up_by);
+          return `<tr class="${c.alert ? "alert-row" : ""}">
+            <td><b>${esc(c.name)}</b><br><span class="muted">${esc(c.bracelet_uid)}</span>
+              ${c.alert ? `<br><span style="color:var(--red);font-weight:600">⚠ ${esc(c.alert)}</span>` : ""}</td>
+            <td class="muted">${esc(c.route || "–")}</td>
+            <td>${confBadge(c.confirmation)}</td>
+            <td>${stateBadge(c.state)}${left ? `<br><span class="muted">cu ${esc(left.picked_up_by)}</span>` : ""}</td>
+            <td class="muted">${c.events.map((e) => `${STATE_ICON[{ BUS_BOARD: "ON_BUS", AFTERSCHOOL_ARRIVE: "AT_AFTERSCHOOL", DEPARTURE: "LEFT" }[e.type]]} ${e.time}`).join("<br>") || "–"}</td>
+            <td>${next ? `<button class="small" onclick="doScan('${c.bracelet_uid}','${next}')">${next === "DEPARTURE" ? "Plecare" : "Sosire"}</button>` : ""}</td>
+          </tr>`;
+        }).join("");
+      } catch (e) { toast(e.message, "err"); }
+    }
+
+    async function doScan(uid, type) {
+      const body = { user_id: me.id, type, bracelet_uid: uid };
+      if (type === "DEPARTURE") {
+        const who = prompt("Cine a luat copilul? (ex. Maria Popescu – mamă)");
+        if (who === null) return;
+        body.picked_up_by = who.trim();
+      }
+      try {
+        const r = await api("/api/scans", { method: "POST", body });
+        const msg = `${r.child.name}: ${EVENT_LABEL[type]}`;
+        r.warnings.length ? toast(`${msg}. ⚠ ${r.warnings.join(" · ")}`, "warn") : toast(`✔ ${msg}`);
+        render();
+      } catch (e) { toast(e.message, "err"); }
+    }
+
+    (async () => {
+      me = await requireUser("teacher");
+      if (!me) return;
+      $("who").textContent = me.name;
+      $("title").textContent = `Copiii de azi – ${new Date().toLocaleDateString("ro-RO")}`;
+      $("scanForm").onsubmit = (e) => {
+        e.preventDefault();
+        doScan($("braceletInput").value, $("scanType").value);
+        $("braceletInput").value = "";
+      };
+      startPolling(render);
+    })();
+  </script>
+</body>
+</html>

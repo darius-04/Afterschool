@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1e3a5f">
+  <title>Afterschool – Părinte</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="phone">
+    <div class="appbar">
+      <div><h1>Copiii mei</h1><div class="sub" id="who"></div></div>
+      <a href="/">Schimbă</a>
+    </div>
+    <div class="content" id="children"></div>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/common.js"></script>
+  <script>
+    let me = null;
+    const openHistory = new Set();  // istoricele deschise raman deschise la reimprospatare
+
+    function timelineHtml(c) {
+      const items = [];
+      if (c.confirmation === "confirmed") items.push(`<li><span class="t">${c.confirmed_at}</span>Ai confirmat că vine azi</li>`);
+      if (c.confirmation === "declined") items.push(`<li><span class="t">${c.confirmed_at}</span>Ai anunțat că nu vine azi</li>`);
+      const done = new Set(c.events.map((e) => e.type));
+      c.events.forEach((e) => items.push(`<li><span class="t">${e.time}</span>${EVENT_LABEL[e.type]}
+        ${e.picked_up_by ? ` cu <b>${esc(e.picked_up_by)}</b>` : ""}
+        ${e.method === "MANUAL" ? ' <span class="badge b-manual">manual</span>' : ""}</li>`));
+      if (c.confirmation !== "declined") {
+        ["BUS_BOARD", "AFTERSCHOOL_ARRIVE", "DEPARTURE"].filter((t) => !done.has(t))
+          .forEach((t) => items.push(`<li class="todo">${EVENT_LABEL[t]}</li>`));
+      }
+      return `<ul class="timeline">${items.join("")}</ul>`;
+    }
+
+    function cardHtml(c) {
+      const canDecline = c.events.length === 0;
+      return `
+        <div class="child-card">
+          <div class="child-head">
+            <div class="avatar">${esc(c.first_name[0])}</div>
+            <div><h2>${esc(c.name)}</h2><div class="muted">${esc(c.route || "fără traseu")}</div></div>
+          </div>
+
+          ${c.alert ? `<div class="alert-box" style="margin-top:12px">⚠ ${esc(c.alert)}. Profesorul a fost anunțat.</div>` : ""}
+
+          <div class="status-big s-${c.state}">
+            <span class="icon">${STATE_ICON[c.state]}</span>
+            <div><div class="label">${STATE_LABEL[c.state]}</div>
+              <div class="muted">${c.events.length ? "Ultima actualizare: " + c.events[c.events.length - 1].time : "Nicio scanare azi"}</div></div>
+          </div>
+
+          <div class="confirm-q">Vine azi la afterschool? ${confBadge(c.confirmation)}</div>
+          <div class="confirm-row">
+            <button class="ok" onclick="confirmChild('${c.id}','confirmed')" ${c.confirmation === "confirmed" ? "disabled" : ""}>✔ Da, vine</button>
+            <button class="danger" onclick="confirmChild('${c.id}','declined')" ${c.confirmation === "declined" || !canDecline ? "disabled" : ""}>✖ Nu vine</button>
+          </div>
+
+          ${timelineHtml(c)}
+
+          <details class="history" data-id="${c.id}" ${openHistory.has(c.id) ? "open" : ""}>
+            <summary>Istoric ultimele zile</summary>
+            <div id="hist-${c.id}" class="muted">Se încarcă…</div>
+          </details>
+        </div>`;
+    }
+
+    async function loadHistory(childId) {
+      const el = $(`hist-${childId}`);
+      try {
+        const days = await api(`/api/children/${childId}/history?user_id=${me.id}`);
+        el.innerHTML = days.length ? days.map((d) => `
+          <div class="hist-day"><b>${new Date(d.date).toLocaleDateString("ro-RO", { weekday: "short", day: "numeric", month: "short" })}</b>
+            · ${d.confirmation === "declined" ? "nu a venit" : d.events.map((e) => `${e.time} ${STATE_ICON[{ BUS_BOARD: "ON_BUS", AFTERSCHOOL_ARRIVE: "AT_AFTERSCHOOL", DEPARTURE: "LEFT" }[e.type]]}`).join(" → ")}
+            ${d.events.find((e) => e.picked_up_by) ? `<br><span class="muted">plecat cu ${esc(d.events.find((e) => e.picked_up_by).picked_up_by)}</span>` : ""}
+          </div>`).join("") : "Niciun istoric încă.";
+      } catch (e) { el.textContent = e.message; }
+    }
+
+    async function render() {
+      try {
+        const data = await api(`/api/me/${me.id}/children`);
+        $("children").innerHTML = data.children.map(cardHtml).join("") || '<p class="muted">Niciun copil asociat contului.</p>';
+        document.querySelectorAll("details.history").forEach((d) => {
+          d.ontoggle = () => { d.open ? openHistory.add(d.dataset.id) : openHistory.delete(d.dataset.id); if (d.open) loadHistory(d.dataset.id); };
+          if (d.open) loadHistory(d.dataset.id);
+        });
+      } catch (e) { toast(e.message, "err"); }
+    }
+
+    async function confirmChild(childId, status) {
+      try {
+        const c = await api(`/api/children/${childId}/confirmation`, { method: "PUT", body: { user_id: me.id, status } });
+        toast(status === "confirmed" ? `${c.first_name} vine azi – confirmat` : `Am anunțat că ${c.first_name} nu vine azi`);
+        render();
+      } catch (e) { toast(e.message, "err"); }
+    }
+
+    (async () => {
+      me = await requireUser("parent");
+      if (!me) return;
+      $("who").textContent = `${me.name} · ${new Date().toLocaleDateString("ro-RO", { weekday: "long", day: "numeric", month: "long" })}`;
+      startPolling(render);
+    })();
+  </script>
+</body>
+</html>

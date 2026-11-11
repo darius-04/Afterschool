@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1e3a5f">
+  <title>Afterschool – Șofer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="phone">
+    <div class="appbar">
+      <div><h1 id="routeName">Traseul meu</h1><div class="sub" id="who"></div></div>
+      <a href="/">Schimbă</a>
+    </div>
+
+    <div class="content">
+      <div class="scan-panel">
+        <div class="muted">Apropie brățara de telefon</div>
+        <div style="font-size:2.4rem;margin:6px 0">📶</div>
+        <form id="scanForm">
+          <input id="braceletInput" placeholder="Cod brățară (ex. NFC-1001)" autocomplete="off" required>
+          <button class="scan-btn" type="submit">Scanează – urcare în autobuz</button>
+        </form>
+        <div class="muted" style="margin-top:8px">Prototip: NFC-ul e simulat prin cod sau prin butonul de lângă copil.</div>
+      </div>
+
+      <div class="counters">
+        <div class="counter"><b id="cBoarded">0</b><span>urcați</span></div>
+        <div class="counter"><b id="cExpected">0</b><span>așteptați</span></div>
+        <div class="counter"><b id="cMissing">0</b><span>lipsesc</span></div>
+      </div>
+
+      <div id="lists"></div>
+    </div>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/common.js"></script>
+  <script>
+    let me = null;
+
+    function rowHtml(c, kind) {
+      const action = kind === "todo" || kind === "unconfirmed"
+        ? `<div style="display:flex;flex-direction:column;gap:6px">
+             <button class="small" onclick="scanBracelet('${c.bracelet_uid}')">Scanează</button>
+             <button class="small secondary" onclick="manual('${c.id}','${esc(c.first_name)}')">Fără brățară</button>
+           </div>`
+        : "";
+      const boarded = c.events.find((e) => e.type === "BUS_BOARD");
+      return `
+        <div class="kid-row ${kind === "done" ? "done" : ""} ${kind === "todo" ? "missing" : ""} ${kind === "declined" ? "declined" : ""}">
+          <div class="avatar">${esc(c.first_name[0])}</div>
+          <div class="info">
+            <div class="name">${esc(c.name)}</div>
+            <div class="muted">${esc(c.bracelet_uid)} · ${confBadge(c.confirmation)}
+              ${boarded ? ` · urcat ${boarded.time}${boarded.method === "MANUAL" ? ' <span class="badge b-manual">manual</span>' : ""}` : ""}
+              ${kind === "done" && c.state !== "ON_BUS" ? " · " + stateBadge(c.state) : ""}</div>
+          </div>
+          ${action}
+        </div>`;
+    }
+
+    async function render() {
+      try {
+        const data = await api(`/api/me/${me.id}/children`);
+        $("routeName").textContent = data.routes.join(", ") || "Niciun traseu alocat";
+        const kids = data.children;
+        const boarded = kids.filter((c) => c.state !== "WAITING");
+        const waiting = kids.filter((c) => c.state === "WAITING");
+        const todo = waiting.filter((c) => c.confirmation === "confirmed");
+        const unconfirmed = waiting.filter((c) => !c.confirmation);
+        const declined = waiting.filter((c) => c.confirmation === "declined");
+
+        $("cBoarded").textContent = boarded.length;
+        $("cExpected").textContent = kids.filter((c) => c.confirmation === "confirmed").length;
+        $("cMissing").textContent = todo.length;
+
+        const section = (title, list, kind) => list.length
+          ? `<div class="section-title">${title} (${list.length})</div>${list.map((c) => rowHtml(c, kind)).join("")}` : "";
+        $("lists").innerHTML =
+          section("De urcat – confirmați", todo, "todo") +
+          section("Neconfirmați de părinte", unconfirmed, "unconfirmed") +
+          section("Urcați", boarded, "done") +
+          section("Nu vin azi", declined, "declined") ||
+          '<p class="muted">Niciun copil pe traseu.</p>';
+      } catch (e) { toast(e.message, "err"); }
+    }
+
+    async function send(body) {
+      try {
+        const r = await api("/api/scans", { method: "POST", body: { user_id: me.id, type: "BUS_BOARD", ...body } });
+        if (navigator.vibrate) navigator.vibrate(r.warnings.length ? [80, 60, 80] : 60);
+        const msg = `${r.child.name} a urcat${r.method === "MANUAL" ? " (bifat manual)" : ""}`;
+        r.warnings.length ? toast(`${msg}. ⚠ ${r.warnings.join(" · ")}`, "warn") : toast(`✔ ${msg}`);
+        render();
+      } catch (e) { toast(e.message, "err"); }
+    }
+
+    const scanBracelet = (uid) => send({ bracelet_uid: uid });
+    function manual(childId, name) {
+      if (confirm(`Bifezi manual urcarea pentru ${name}? Folosește doar dacă brățara lipsește sau nu merge.`)) send({ child_id: childId });
+    }
+
+    (async () => {
+      me = await requireUser("driver");
+      if (!me) return;
+      $("who").textContent = `${me.name} · ${new Date().toLocaleDateString("ro-RO", { weekday: "long", day: "numeric", month: "long" })}`;
+      $("scanForm").onsubmit = (e) => {
+        e.preventDefault();
+        scanBracelet($("braceletInput").value);
+        $("braceletInput").value = "";
+      };
+      startPolling(render);
+    })();
+  </script>
+</body>
+</html>
