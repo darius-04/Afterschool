@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Afterschool – Test permisiuni</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>🔐 Test permisiuni</h1>
+    <span id="roleSwitch"></span>
+  </header>
+
+  <main class="wide">
+    <div class="panel">
+      <div class="row-between">
+        <h2 id="title">Ce poate face rolul curent</h2>
+        <div style="display:flex;gap:8px">
+          <button id="runBtn">Rulează din nou</button>
+          <a class="btn secondary" id="myPage" href="/">Înapoi la pagina mea</a>
+        </div>
+      </div>
+      <p class="muted">Panoul trimite la server cererile tuturor rolurilor, cu utilizatorul curent, și arată ce a răspuns serverul.
+        Acțiunile se verifică în modul <code>dry_run</code>: serverul verifică permisiunea, dar nu salvează nimic.</p>
+      <div id="summary"></div>
+      <table>
+        <thead><tr><th>Acțiune</th><th>Cerere</th><th>Așteptat</th><th>Răspuns server</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="panel muted">
+      <b>Limita prototipului:</b> serverul află cine ești din <code>user_id</code> trimis de browser. Fără login real,
+      oricine poate trimite alt <code>user_id</code> (de exemplu din Swagger) și se poate da drept alt utilizator.
+      Regulile pe rol sunt verificate corect pe server, dar identitatea nu. Pasul următor: login cu parolă care
+      întoarce un token (JWT sau sesiune), iar serverul ia utilizatorul din token, nu din cerere.
+    </div>
+  </main>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/common.js"></script>
+  <script>
+    let me = null;
+    const put = (path, body) => fetch(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const post = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+    // fiecare actiune: cererea trimisa + cine AR TREBUI sa aiba voie
+    const ACTIONS = [
+      { label: "Deschide pagina Părinte", req: "GET /parinte",
+        run: (u) => fetch(`/parinte?u=${u.id}`), expect: (u) => u.role === "parent" },
+      { label: "Deschide pagina Șofer", req: "GET /sofer",
+        run: (u) => fetch(`/sofer?u=${u.id}`), expect: (u) => u.role === "driver" },
+      { label: "Deschide pagina Profesor", req: "GET /profesor",
+        run: (u) => fetch(`/profesor?u=${u.id}`), expect: (u) => u.role === "teacher" },
+      { label: "Confirmă participarea Anei (copilul Mariei)", req: "PUT /api/children/c_ana/confirmation",
+        run: (u) => put("/api/children/c_ana/confirmation?dry_run=true", { user_id: u.id, status: "confirmed" }),
+        expect: (u) => u.id === "u_parent_maria" },
+      { label: "Confirmă participarea lui Luca (copilul lui Ion)", req: "PUT /api/children/c_luca/confirmation",
+        run: (u) => put("/api/children/c_luca/confirmation?dry_run=true", { user_id: u.id, status: "confirmed" }),
+        expect: (u) => u.id === "u_parent_ion" },
+      { label: "Vede istoricul Anei", req: "GET /api/children/c_ana/history",
+        run: (u) => fetch(`/api/children/c_ana/history?user_id=${u.id}`), expect: (u) => u.id === "u_parent_maria" },
+      { label: "Scanează urcarea în autobuz", req: "POST /api/scans BUS_BOARD",
+        run: (u) => post("/api/scans?dry_run=true", { user_id: u.id, type: "BUS_BOARD", bracelet_uid: "NFC-1001" }),
+        expect: (u) => u.role === "driver" },
+      { label: "Scanează sosirea la afterschool", req: "POST /api/scans AFTERSCHOOL_ARRIVE",
+        run: (u) => post("/api/scans?dry_run=true", { user_id: u.id, type: "AFTERSCHOOL_ARRIVE", bracelet_uid: "NFC-1001" }),
+        expect: (u) => u.role === "teacher" },
+      { label: "Scanează plecarea de la afterschool", req: "POST /api/scans DEPARTURE",
+        run: (u) => post("/api/scans?dry_run=true", { user_id: u.id, type: "DEPARTURE", bracelet_uid: "NFC-1001" }),
+        expect: (u) => u.role === "teacher" },
+    ];
+
+    async function run() {
+      $("rows").innerHTML = '<tr><td colspan="5" class="muted">Se verifică…</td></tr>';
+      const results = [];
+      for (const a of ACTIONS) {
+        let status = 0;
+        try { status = (await a.run(me)).status; } catch { status = 0; }
+        const allowed = status >= 200 && status < 300;
+        const expected = a.expect(me);
+        results.push({ a, status, allowed, expected, match: allowed === expected });
+      }
+
+      // ce lista de copii primeste rolul curent
+      const kids = (await api(`/api/me/${me.id}/children`)).children.map((c) => c.first_name);
+
+      const bad = results.filter((r) => !r.match).length;
+      $("summary").innerHTML = bad
+        ? `<div class="perm-summary bad">⚠ ${bad} din ${results.length} verificări NU corespund regulilor</div>`
+        : `<div class="perm-summary ok">✔ Toate cele ${results.length} verificări corespund regulilor pentru ${esc(me.name)} (${ROLE_LABEL[me.role]}).
+             Lista de copii primită: ${kids.length ? esc(kids.join(", ")) : "niciun copil"}.</div>`;
+
+      $("rows").innerHTML = results.map((r) => `
+        <tr class="${r.match ? "" : "perm-bad"}">
+          <td>${esc(r.a.label)}</td>
+          <td><code class="req">${esc(r.a.req)}</code></td>
+          <td>${r.expected ? '<span class="perm-ok">permis</span>' : '<span class="perm-no">refuzat</span>'}</td>
+          <td>${r.allowed ? '<span class="perm-ok">permis</span>' : '<span class="perm-no">refuzat</span>'} <span class="muted">(${r.status || "eroare"})</span></td>
+          <td>${r.match ? "✔" : "⚠"}</td>
+        </tr>`).join("");
+    }
+
+    (async () => {
+      me = await requireUser(null);  // orice rol poate deschide panoul de test
+      if (!me) return;
+      $("title").textContent = `Ce poate face ${me.name} (${ROLE_LABEL[me.role]})`;
+      $("myPage").href = pageFor(me);
+      $("runBtn").onclick = run;
+      run();
+    })();
+  </script>
+</body>
+</html>

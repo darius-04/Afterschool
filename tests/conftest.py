@@ -11,7 +11,9 @@ import pytest
 
 _tmp = os.path.join(tempfile.gettempdir(), "afterschool_test.db")
 os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL", f"sqlite:///{_tmp}")
-os.environ.setdefault("ALERT_MINUTES", "30")
+# testele presupun pragul de 30 min, indiferent ce e setat in terminal (ex. ALERT_MINUTES=1 pentru demo)
+os.environ["ALERT_MINUTES"] = "30"
+os.environ["ENABLE_DEV_RESET"] = "1"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

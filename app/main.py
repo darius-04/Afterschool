@@ -1,3 +1,4 @@
+import html
 import os
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -6,7 +7,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
@@ -121,24 +122,61 @@ class ScanIn(BaseModel):
 
 # ---------- pagini ----------
 
+ROLE_PAGES = {"parent": ("parent.html", "părinți"), "driver": ("driver.html", "șoferi"),
+              "teacher": ("teacher.html", "profesori")}
+ROLE_URL = {"parent": "/parinte", "driver": "/sofer", "teacher": "/profesor"}
+ROLE_NAME = {"parent": "părinte", "driver": "șofer", "teacher": "profesor"}
+
+
+def forbidden_page(user: Optional[User], page_role: str) -> HTMLResponse:
+    who = (f"Ești conectat ca <b>{html.escape(user.name)}</b> ({ROLE_NAME[user.role]})."
+           if user else "Utilizatorul din link nu există.")
+    own = (f'<a class="btn" href="{ROLE_URL[user.role]}?u={html.escape(user.id)}">Mergi la pagina mea</a>'
+           if user else "")
+    body = f"""<!DOCTYPE html><html lang="ro"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Acces interzis</title>
+<link rel="stylesheet" href="/static/style.css"></head><body>
+<div class="forbidden"><div class="forbidden-card"><div class="big">⛔</div><h1>Acces interzis</h1>
+<p>{who}</p><p>Pagina aceasta e doar pentru {ROLE_PAGES[page_role][1]}.</p>
+<div class="actions">{own}<a class="btn secondary" href="/">Schimbă rolul</a></div>
+<p class="muted">Cod răspuns: 403</p></div></div></body></html>"""
+    return HTMLResponse(body, status_code=403)
+
+
+def role_page(role: str, u: Optional[str], session: Session):
+    """Pagina unui rol. Cu ?u= in link, serverul verifica rolul si raspunde 403 daca nu se potriveste.
+    (Fara ?u=, verificarea o face pagina in browser, dupa utilizatorul salvat.)"""
+    if u is not None:
+        user = session.get(User, u)
+        if not user or user.role != role:
+            return forbidden_page(user, role)
+    return FileResponse(STATIC_DIR / ROLE_PAGES[role][0])
+
+
 @app.get("/")
 def page_index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/parinte")
-def page_parent():
-    return FileResponse(STATIC_DIR / "parent.html")
+def page_parent(u: Optional[str] = None, session: Session = Depends(get_session)):
+    return role_page("parent", u, session)
 
 
 @app.get("/sofer")
-def page_driver():
-    return FileResponse(STATIC_DIR / "driver.html")
+def page_driver(u: Optional[str] = None, session: Session = Depends(get_session)):
+    return role_page("driver", u, session)
 
 
 @app.get("/profesor")
-def page_teacher():
-    return FileResponse(STATIC_DIR / "teacher.html")
+def page_teacher(u: Optional[str] = None, session: Session = Depends(get_session)):
+    return role_page("teacher", u, session)
+
+
+@app.get("/permisiuni")
+def page_permissions():
+    """Panou de test: incearca actiunile tuturor rolurilor cu utilizatorul curent (fara sa modifice date)."""
+    return FileResponse(STATIC_DIR / "permissions.html")
 
 
 # ---------- API ----------
@@ -185,13 +223,17 @@ def child_history(child_id: str, user_id: str, days: int = Query(7, ge=1, le=60)
 
 
 @app.put("/api/children/{child_id}/confirmation")
-def set_confirmation(child_id: str, body: ConfirmationIn, session: Session = Depends(get_session)):
+def set_confirmation(child_id: str, body: ConfirmationIn, dry_run: bool = False,
+                     session: Session = Depends(get_session)):
+    """dry_run=true: verifica doar permisiunea (403 sau 200), fara sa salveze nimic."""
     user = get_user(session, body.user_id)
     child = session.get(Child, child_id)
     if not child:
         raise HTTPException(404, "Copil inexistent")
     if user.role != "parent" or not session.get(ParentChild, (user.id, child_id)):
         raise HTTPException(403, "Doar părintele copilului poate confirma participarea")
+    if dry_run:
+        return {"allowed": True, "dry_run": True}
 
     day = today()
     scanned = session.exec(select(ScanEvent).where(ScanEvent.child_id == child_id, ScanEvent.date == day)).first()
@@ -221,7 +263,8 @@ def set_confirmation(child_id: str, body: ConfirmationIn, session: Session = Dep
 
 
 @app.post("/api/scans")
-def scan(body: ScanIn, session: Session = Depends(get_session)):
+def scan(body: ScanIn, dry_run: bool = False, session: Session = Depends(get_session)):
+    """dry_run=true: verifica doar rolul si copilul (403 / 404 sau 200), fara sa salveze scanarea."""
     user = get_user(session, body.user_id)
     if body.type not in ROLE_EVENTS.get(user.role, set()):
         raise HTTPException(403, "Rolul tău nu poate face această scanare")
@@ -238,6 +281,8 @@ def scan(body: ScanIn, session: Session = Depends(get_session)):
         method = "MANUAL"
     else:
         raise HTTPException(422, "Trimite codul brățării sau copilul (bifare manuală)")
+    if dry_run:
+        return {"allowed": True, "dry_run": True}
 
     day = today()
     done = {s.type for s in session.exec(select(ScanEvent).where(ScanEvent.child_id == child.id,

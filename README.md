@@ -85,6 +85,22 @@ Starea copilului nu se salvează: se calculează din scanările zilei
 - Avertismente (scanarea se salvează, dar apare mesaj): copil neconfirmat, copil anunțat că nu vine, copil care nu e pe traseul șoferului.
 - Alertă „urcat, dar nesosit” după `ALERT_MINUTES` (implicit 30), vizibilă la profesor și la părinte.
 
+## Roluri și permisiuni
+
+- **Selectorul de rol** (butonul din dreapta sus, pe fiecare pagină) schimbă utilizatorul și deschide
+  doar pagina rolului ales.
+- **Pagina altui rol** → „Acces interzis”. Cu `?u=` în link, refuzul vine de la server (403);
+  fără `?u=`, îl afișează pagina, după utilizatorul salvat.
+- **API-ul** verifică rolul la fiecare cerere: o cerere trimisă manual (de exemplu din Swagger) pentru
+  alt rol primește 403.
+- **`/permisiuni`** (link și în selectorul de rol): încearcă acțiunile tuturor rolurilor cu utilizatorul
+  curent și arată, pentru fiecare, ce era așteptat și ce a răspuns serverul. Folosește `?dry_run=true`,
+  deci nu modifică date.
+
+**Limită:** fără login real, serverul află cine ești din `user_id` trimis de browser, care poate fi
+schimbat. Regulile pe rol sunt corecte, dar identitatea nu e verificată. Pasul următor: login care
+întoarce un token (JWT sau sesiune), iar serverul ia utilizatorul din token.
+
 ## Teste (cazuri-limită)
 
 ```powershell

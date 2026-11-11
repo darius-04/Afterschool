@@ -107,3 +107,33 @@ form.inline input { flex: 1; min-width: 180px; text-transform: uppercase; }
 .user-card { background: var(--card); border-radius: 14px; padding: 16px; cursor: pointer; box-shadow: 0 1px 4px #0001; border: 2px solid transparent; text-align: left; color: var(--ink); font-weight: 400; }
 .user-card:hover { border-color: var(--blue); }
 .user-card b { display: block; margin-bottom: 4px; }
+
+/* ----- selector de rol, acces interzis, panou permisiuni ----- */
+.role-btn { background: #ffffff22; border: 1px solid #ffffff55; color: #fff; padding: 7px 10px; font-weight: 500; font-size: .85rem; border-radius: 999px; white-space: nowrap; max-width: 62vw; overflow: hidden; text-overflow: ellipsis; }
+.forbidden .role-btn, .pick .role-btn { background: #e2e8f0; color: var(--ink); border-color: #cbd5e1; }
+.modal-overlay { position: fixed; inset: 0; background: #0f172a88; z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
+@media (min-width: 640px) { .modal-overlay { align-items: center; } }
+.modal { background: #fff; color: var(--ink); width: min(100%, 440px); max-height: 88vh; overflow: auto; border-radius: 18px 18px 0 0; padding: 18px; }
+@media (min-width: 640px) { .modal { border-radius: 18px; } }
+.modal h2 { margin: 0; font-size: 1.1rem; }
+.modal-group { font-size: .8rem; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 14px 0 6px; }
+.modal-user { display: block; width: 100%; text-align: left; background: #f8fafc; color: var(--ink); border: 1px solid var(--line); margin-bottom: 6px; font-weight: 500; }
+.modal-user:hover { border-color: var(--blue); }
+.modal-user.current { border-color: var(--green); background: #f0fdf4; }
+.modal-footer { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.modal-footer a { color: var(--blue); font-weight: 600; text-decoration: none; }
+a.btn { display: inline-block; text-decoration: none; background: var(--blue); color: #fff; padding: 10px 14px; border-radius: 10px; font-weight: 600; }
+a.btn.secondary { background: #e2e8f0; color: var(--ink); }
+.forbidden { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.forbidden-card { background: #fff; border-radius: 18px; padding: 28px; max-width: 440px; text-align: center; box-shadow: 0 4px 16px #0001; }
+.forbidden-card .big { font-size: 3rem; }
+.forbidden-card h1 { margin: 8px 0 12px; color: var(--red); }
+.forbidden-card .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 16px; align-items: center; }
+.perm-ok { color: #166534; font-weight: 700; }
+.perm-no { color: #991b1b; font-weight: 700; }
+.perm-bad td { background: #fef2f2; }
+.perm-summary { padding: 12px 14px; border-radius: 12px; font-weight: 600; margin-bottom: 12px; }
+.perm-summary.ok { background: #dcfce7; color: #166534; }
+.perm-summary.bad { background: #fee2e2; color: #991b1b; }
+code.req { font-size: .8rem; color: var(--muted); }
+.modal-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
