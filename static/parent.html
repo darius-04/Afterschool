@@ -56,8 +56,8 @@
 
           <div class="confirm-q">Vine azi la afterschool? ${confBadge(c.confirmation)}</div>
           <div class="confirm-row">
-            <button class="ok" onclick="confirmChild('${c.id}','confirmed')" ${c.confirmation === "confirmed" ? "disabled" : ""}>✔ Da, vine</button>
-            <button class="danger" onclick="confirmChild('${c.id}','declined')" ${c.confirmation === "declined" || !canDecline ? "disabled" : ""}>✖ Nu vine</button>
+            <button class="ok" onclick="confirmChild('${esc(c.id)}','confirmed')" ${c.confirmation === "confirmed" ? "disabled" : ""}>✔ Da, vine</button>
+            <button class="danger" onclick="confirmChild('${esc(c.id)}','declined')" ${c.confirmation === "declined" || !canDecline ? "disabled" : ""}>✖ Nu vine</button>
           </div>
 
           ${timelineHtml(c)}

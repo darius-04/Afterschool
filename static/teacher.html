@@ -42,11 +42,13 @@
   <script src="/static/common.js"></script>
   <script>
     let me = null;
+    let kidsById = {};
     const NEXT = { WAITING: "AFTERSCHOOL_ARRIVE", ON_BUS: "AFTERSCHOOL_ARRIVE", AT_AFTERSCHOOL: "DEPARTURE" };
 
     async function render() {
       try {
         const data = await api(`/api/me/${me.id}/children`);
+        kidsById = Object.fromEntries(data.children.map((c) => [c.id, c]));
         const kids = [...data.children].sort((a, b) => (b.alert ? 1 : 0) - (a.alert ? 1 : 0));
         $("alertInfo").textContent = `Alertă dacă un copil nu ajunge în ${data.alert_minutes} min de la urcare`;
         const n = (fn) => data.children.filter(fn).length;
@@ -66,11 +68,13 @@
             <td>${confBadge(c.confirmation)}</td>
             <td>${stateBadge(c.state)}${left ? `<br><span class="muted">cu ${esc(left.picked_up_by)}</span>` : ""}</td>
             <td class="muted">${c.events.map((e) => `${STATE_ICON[{ BUS_BOARD: "ON_BUS", AFTERSCHOOL_ARRIVE: "AT_AFTERSCHOOL", DEPARTURE: "LEFT" }[e.type]]} ${e.time}`).join("<br>") || "–"}</td>
-            <td>${next ? `<button class="small" onclick="doScan('${c.bracelet_uid}','${next}')">${next === "DEPARTURE" ? "Plecare" : "Sosire"}</button>` : ""}</td>
+            <td>${next ? `<button class="small" onclick="scanKid('${esc(c.id)}','${next}')">${next === "DEPARTURE" ? "Plecare" : "Sosire"}</button>` : ""}</td>
           </tr>`;
         }).join("");
       } catch (e) { toast(e.message, "err"); }
     }
+
+    const scanKid = (id, type) => kidsById[id] && doScan(kidsById[id].bracelet_uid, type);
 
     async function doScan(uid, type) {
       const body = { user_id: me.id, type, bracelet_uid: uid };

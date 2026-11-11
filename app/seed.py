@@ -11,6 +11,7 @@ USERS = [
     ("u_parent_maria", "Maria Popescu", "parent"),
     ("u_parent_ion", "Ion Ionescu", "parent"),
     ("u_parent_elena", "Elena Georgescu", "parent"),
+    ("u_parent_andrei", "Andrei Georgescu", "parent"),
     ("u_teacher_andreea", "Prof. Andreea Dumitru", "teacher"),
     ("u_driver_mihai", "Mihai Stan", "driver"),
     ("u_driver_radu", "Radu Marin", "driver"),
@@ -30,9 +31,11 @@ PARENT_CHILD = [
     ("u_parent_maria", "c_ana", "mamă"),
     ("u_parent_maria", "c_matei", "mamă"),
     ("u_parent_ion", "c_luca", "tată"),
-    ("u_parent_ion", "c_sofia", "tată"),
+    # Sofia si David au doi parinti in sistem (exemplu de relatie N-N)
     ("u_parent_elena", "c_sofia", "mamă"),
     ("u_parent_elena", "c_david", "mamă"),
+    ("u_parent_andrei", "c_sofia", "tată"),
+    ("u_parent_andrei", "c_david", "tată"),
 ]
 
 

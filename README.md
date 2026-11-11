@@ -85,6 +85,37 @@ Starea copilului nu se salvează: se calculează din scanările zilei
 - Avertismente (scanarea se salvează, dar apare mesaj): copil neconfirmat, copil anunțat că nu vine, copil care nu e pe traseul șoferului.
 - Alertă „urcat, dar nesosit” după `ALERT_MINUTES` (implicit 30), vizibilă la profesor și la părinte.
 
+## Teste (cazuri-limită)
+
+```powershell
+pip install -r requirements-dev.txt
+python -m pytest -v
+```
+
+Implicit rulează pe o bază SQLite temporară (nu îți atinge baza de dezvoltare).
+Pe PostgreSQL, inclusiv testele de cereri simultane (creezi întâi baza `afterschool_test`):
+```powershell
+$env:TEST_DATABASE_URL="postgresql+psycopg://afterschool:afterschool@localhost:5432/afterschool_test"
+python -m pytest -v
+```
+
+Ce acoperă `tests/test_edge_cases.py` (62 de teste):
+- **Acces:** fiecare rol vede doar ce trebuie; istoricul doar pentru părintele copilului; utilizatori și copii inexistenți.
+- **Confirmare:** alt părinte sau personalul nu pot confirma; confirmare dublă; răzgândire; anulare după scanare blocată; doi părinți ai aceluiași copil.
+- **Scanări:** roluri greșite, tip invalid, brățară necunoscută sau goală, cod scris cu litere mici sau spații, bifare manuală, scanare dublă (inclusiv manual + NFC), ordine greșită, sosire fără autobuz, două plecări.
+- **Avertismente:** copil neconfirmat, anunțat absent, de pe alt traseu, plecare fără persoana care l-a luat.
+- **Ora și ziua:** alerta înainte și după prag, dispariția alertei la sosire, ziua nouă pornește curat, scanare la 23:59:59.
+- **Concurență (PostgreSQL):** 8 scanări simultane, salvată o singură dată; confirmări simultane fără eroare de server.
+- **Producție:** reset-ul se poate dezactiva.
+
+## Variabile de mediu
+
+| Variabilă | Implicit | Ce face |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL local din docker-compose | conexiunea la bază (merge și `sqlite:///afterschool.db`) |
+| `ALERT_MINUTES` | `30` | după câte minute apare alerta „urcat, dar nesosit” |
+| `ENABLE_DEV_RESET` | `1` | pune `0` în producție: dispare `/api/dev/reset`, iar datele de test nu se mai pun automat |
+
 ## Simplificări intenționate
 
 Login simulat (alegere din listă) · fără notificări push (reîmprospătare la 5 s) · NFC simulat

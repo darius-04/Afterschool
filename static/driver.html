@@ -39,12 +39,13 @@
   <script src="/static/common.js"></script>
   <script>
     let me = null;
+    let kidsById = {};  // butoanele trimit doar id-ul; restul datelor se iau de aici
 
     function rowHtml(c, kind) {
       const action = kind === "todo" || kind === "unconfirmed"
         ? `<div style="display:flex;flex-direction:column;gap:6px">
-             <button class="small" onclick="scanBracelet('${c.bracelet_uid}')">Scanează</button>
-             <button class="small secondary" onclick="manual('${c.id}','${esc(c.first_name)}')">Fără brățară</button>
+             <button class="small" onclick="scanKid('${esc(c.id)}')">Scanează</button>
+             <button class="small secondary" onclick="manual('${esc(c.id)}')">Fără brățară</button>
            </div>`
         : "";
       const boarded = c.events.find((e) => e.type === "BUS_BOARD");
@@ -66,6 +67,7 @@
         const data = await api(`/api/me/${me.id}/children`);
         $("routeName").textContent = data.routes.join(", ") || "Niciun traseu alocat";
         const kids = data.children;
+        kidsById = Object.fromEntries(kids.map((c) => [c.id, c]));
         const boarded = kids.filter((c) => c.state !== "WAITING");
         const waiting = kids.filter((c) => c.state === "WAITING");
         const todo = waiting.filter((c) => c.confirmation === "confirmed");
@@ -98,8 +100,10 @@
     }
 
     const scanBracelet = (uid) => send({ bracelet_uid: uid });
-    function manual(childId, name) {
-      if (confirm(`Bifezi manual urcarea pentru ${name}? Folosește doar dacă brățara lipsește sau nu merge.`)) send({ child_id: childId });
+    const scanKid = (id) => kidsById[id] && scanBracelet(kidsById[id].bracelet_uid);
+    function manual(id) {
+      const c = kidsById[id];
+      if (c && confirm(`Bifezi manual urcarea pentru ${c.first_name}? Folosește doar dacă brățara lipsește sau nu merge.`)) send({ child_id: id });
     }
 
     (async () => {

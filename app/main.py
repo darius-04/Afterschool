@@ -5,20 +5,22 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 
-from app.db import get_session
+from app.db import create_tables, get_session
 from app.models import AttendanceConfirmation, Child, ParentChild, Route, ScanEvent, User
 from app.seed import seed
 from app.timeutil import local, now, today
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 ALERT_MINUTES = int(os.getenv("ALERT_MINUTES", "30"))  # "urcat, dar nesosit" dupa X minute
+# in productie: ENABLE_DEV_RESET=0 (endpoint-ul de reset dispare, iar datele de test nu se mai pun automat)
+ENABLE_DEV_RESET = os.getenv("ENABLE_DEV_RESET", "1") == "1"
 
 EventType = Literal["BUS_BOARD", "AFTERSCHOOL_ARRIVE", "DEPARTURE"]
 ROLE_EVENTS = {"driver": {"BUS_BOARD"}, "teacher": {"AFTERSCHOOL_ARRIVE", "DEPARTURE"}}
@@ -29,7 +31,10 @@ STATE_BY_LAST_EVENT = {None: "WAITING", "BUS_BOARD": "ON_BUS",
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    seed()  # creeaza tabelele; populeaza doar daca baza e goala
+    if ENABLE_DEV_RESET:
+        seed()  # creeaza tabelele; populeaza doar daca baza e goala
+    else:
+        create_tables()
     yield
 
 
@@ -104,7 +109,14 @@ class ScanIn(BaseModel):
     type: EventType
     bracelet_uid: Optional[str] = None  # scanare (simulata) a bratarii
     child_id: Optional[str] = None      # bifare manuala, cand bratara nu merge
-    picked_up_by: Optional[str] = None  # la plecare: cine a luat copilul
+    picked_up_by: Optional[str] = Field(default=None, max_length=100)  # la plecare: cine a luat copilul
+
+    @field_validator("picked_up_by")
+    @classmethod
+    def _strip(cls, v):
+        if v is None:
+            return None
+        return v.strip() or None
 
 
 # ---------- pagini ----------
@@ -155,7 +167,8 @@ def my_children(user_id: str, session: Session = Depends(get_session)):
 
 
 @app.get("/api/children/{child_id}/history")
-def child_history(child_id: str, user_id: str, days: int = 7, session: Session = Depends(get_session)):
+def child_history(child_id: str, user_id: str, days: int = Query(7, ge=1, le=60),
+                  session: Session = Depends(get_session)):
     """Istoricul ultimelor zile (fara azi). Doar pentru parintii copilului."""
     child = session.get(Child, child_id)
     if not child:
@@ -189,11 +202,21 @@ def set_confirmation(child_id: str, body: ConfirmationIn, session: Session = Dep
         AttendanceConfirmation.child_id == child_id, AttendanceConfirmation.date == day)).first()
     if conf:
         conf.status, conf.confirmed_by, conf.updated_at = body.status, user.id, now()
+        session.add(conf)
+        session.commit()
     else:
-        conf = AttendanceConfirmation(child_id=child_id, date=day, status=body.status,
-                                      confirmed_by=user.id, updated_at=now())
-    session.add(conf)
-    session.commit()
+        session.add(AttendanceConfirmation(child_id=child_id, date=day, status=body.status,
+                                           confirmed_by=user.id, updated_at=now()))
+        try:
+            session.commit()
+        except IntegrityError:
+            # alta cerere a creat confirmarea zilei in acelasi moment -> o actualizam pe aceea
+            session.rollback()
+            conf = session.exec(select(AttendanceConfirmation).where(
+                AttendanceConfirmation.child_id == child_id, AttendanceConfirmation.date == day)).one()
+            conf.status, conf.confirmed_by, conf.updated_at = body.status, user.id, now()
+            session.add(conf)
+            session.commit()
     return build_status(session, [child], day)[0]
 
 
@@ -226,7 +249,7 @@ def scan(body: ScanIn, session: Session = Depends(get_session)):
 
     session.add(ScanEvent(child_id=child.id, date=day, type=body.type, method=method, scanned_by=user.id,
                           scanned_at=now(),
-                          picked_up_by=(body.picked_up_by or None) if body.type == "DEPARTURE" else None))
+                          picked_up_by=body.picked_up_by if body.type == "DEPARTURE" else None))
     try:
         session.commit()
     except IntegrityError:  # UNIQUE (child_id, date, type) -> scanare dubla, chiar si simultana
@@ -241,6 +264,8 @@ def scan(body: ScanIn, session: Session = Depends(get_session)):
         warnings.append("Părintele nu a confirmat participarea azi")
     elif conf.status == "declined":
         warnings.append("Atenție: părintele a anunțat că NU vine azi!")
+    if body.type == "DEPARTURE" and not body.picked_up_by:
+        warnings.append("Nu s-a notat cine a luat copilul")
     if user.role == "driver":
         route = session.get(Route, child.route_id) if child.route_id else None
         if not route or route.driver_id != user.id:
@@ -252,5 +277,7 @@ def scan(body: ScanIn, session: Session = Depends(get_session)):
 @app.post("/api/dev/reset")
 def reset():
     """Doar pentru demo: reface datele de test (sterge confirmarile si scanarile de azi)."""
+    if not ENABLE_DEV_RESET:
+        raise HTTPException(404, "Not Found")
     seed(force=True)
     return {"ok": True}
